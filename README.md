@@ -280,6 +280,11 @@ The `chai_1/run_chailab_launcher.py` script offers a user-friendly way to execut
     *   Refer to the script's help for more specific Chai Lab arguments like `--msa_directory`, `--constraint_path`, `--num_diffn_samples`, etc.
     *   Run `python chai_1/run_chailab_launcher.py --help` to see all available options.
 
+## How to Cite
+
+[Singularity Containers for Protein Prediction Models](https://github.com/EpiGenomicsCode/ProteinStruct-Containers), based upon the work “Omnifold: Protein structure prediction and design for high-throughput computing” ([doi:10.1101/2025.07.18.665594](https://doi.org/10.1101/2025.07.18.665594)), is generously funded by Cornell University BRC Epigenomics Core Facility (RRID:SCR_021287), Penn State Institute for Computational and Data Sciences (RRID:SCR_025154), Penn State University Center for Applications of Artificial Intelligence and Machine Learning to Industry Core Facility (AIMI) (RRID:SCR_022867), and supported by a gift to AIMI research from Dell Technologies.
+
+
 ## Acknowledgements
 - AlphaFold by DeepMind Technologies Limited
 - Boltz-1 by Wohlwend, Jeremy, et al. "Boltz-1: Democratizing Biomolecular Interaction Modeling." bioRxiv (2024): 2024-11.
