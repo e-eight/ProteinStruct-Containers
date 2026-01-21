@@ -49,7 +49,7 @@ mkdir /hmmer_build /hmmer && \
     rm -R /hmmer_build
 
 # Clone AlphaFold 3 repository
-git clone https://github.com/google-deepmind/alphafold3.git /alphafold3
+git clone --depth 1 --branch v3.0.1 https://github.com/google-deepmind/alphafold3.git /alphafold3
 cd /alphafold3
 
 # Install build dependencies for C++ components
