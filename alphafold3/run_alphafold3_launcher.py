@@ -152,6 +152,10 @@ flags.DEFINE_enum(
 flags.DEFINE_boolean(
     'save_embeddings', False,
     'Whether to save the final trunk single and pair embeddings in the output.')
+flags.DEFINE_boolean(
+    'save_distogram', False,
+    'Whether to save the distogram (predicted inter-residue distance distribution) '
+    'in the output. New in AlphaFold 3 v3.0.2.')
 
 FLAGS = flags.FLAGS
 
@@ -257,6 +261,7 @@ def main(argv):
         f'--num_diffusion_samples={FLAGS.num_diffusion_samples}',
         f'--flash_attention_implementation={FLAGS.flash_attention_implementation}',
         f'--save_embeddings={str(FLAGS.save_embeddings).lower()}',
+        f'--save_distogram={str(FLAGS.save_distogram).lower()}',
         f'--force_output_dir={str(FLAGS.force_output_dir).lower()}',
         # Useful for debugging within the container
         '--logtostderr',
@@ -267,7 +272,7 @@ def main(argv):
         command_args.append(f'--num_seeds={FLAGS.num_seeds}')
 
     # Prepend the python execution command
-    run_script_path = '/app/run_alphafold.py' # Assuming this is the path inside the SIF
+    run_script_path = '/alphafold3/run_alphafold.py'
     full_command = ['python', run_script_path] + command_args
 
     # --- Prepare Singularity Options ---

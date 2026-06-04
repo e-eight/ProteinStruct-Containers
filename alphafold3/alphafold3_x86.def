@@ -1,91 +1,80 @@
 Bootstrap: docker
-From: nvidia/cuda:12.6.0-runtime-ubuntu22.04
+From: nvidia/cuda:12.6.3-base-ubuntu24.04
 Stage: spython-base
 
 %post
 # Install essential build tools and dependencies
+# Ubuntu 24.04 ships Python 3.12 natively — no PPA required
 apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     ca-certificates \
     wget \
+    patch \
     git \
     gcc \
     g++ \
     make \
     zlib1g-dev \
     zstd \
-    software-properties-common \
     cmake \
     ninja-build \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
-
-# Install Python 3.11 
-add-apt-repository ppa:deadsnakes/ppa && \
-    DEBIAN_FRONTEND=noninteractive apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-    python3.11 \
+    python3.12 \
+    python3.12-venv \
+    python3.12-dev \
     python3-pip \
-    python3.11-venv \
-    python3.11-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
 # Create Python virtual environment
-python3.11 -m venv /alphafold3_venv
+python3.12 -m venv /alphafold3_venv
 export PATH="/hmmer/bin:/alphafold3_venv/bin:$PATH"
 
-# Update pip and install build tools
+# Update pip
 /alphafold3_venv/bin/pip install --upgrade pip setuptools wheel
 
-# Install HMMER
+# Install HMMER with jackhmmer RAM-limit patch (introduced in AlphaFold3 v3.0.2)
+# The patch adds --seq_limit to jackhmmer to cap hits and prevent excessive RAM use.
 mkdir /hmmer_build /hmmer && \
     wget http://eddylab.org/software/hmmer/hmmer-3.4.tar.gz --directory-prefix /hmmer_build && \
+    (cd /hmmer_build && echo "ca70d94fd0cf271bd7063423aabb116d42de533117343a9b27a65c17ff06fbf3  hmmer-3.4.tar.gz" | sha256sum --check) && \
     (cd /hmmer_build && tar zxf hmmer-3.4.tar.gz && rm hmmer-3.4.tar.gz) && \
+    wget https://raw.githubusercontent.com/google-deepmind/alphafold3/v3.0.2/docker/jackhmmer_seq_limit.patch \
+         -O /hmmer_build/jackhmmer_seq_limit.patch && \
+    (cd /hmmer_build && patch -p0 < jackhmmer_seq_limit.patch) && \
     (cd /hmmer_build/hmmer-3.4 && ./configure --prefix /hmmer) && \
     (cd /hmmer_build/hmmer-3.4 && make -j$(nproc)) && \
     (cd /hmmer_build/hmmer-3.4 && make install) && \
     (cd /hmmer_build/hmmer-3.4/easel && make install) && \
     rm -R /hmmer_build
 
-# Clone AlphaFold 3 repository
-git clone --depth 1 --branch v3.0.1 https://github.com/google-deepmind/alphafold3.git /alphafold3
+# Clone AlphaFold 3 v3.0.2 repository
+git clone --depth 1 --branch v3.0.2 https://github.com/google-deepmind/alphafold3.git /alphafold3
 cd /alphafold3
 
-# Install build dependencies for C++ components
-/alphafold3_venv/bin/pip install cmake ninja pybind11 numpy scikit_build_core
-
-# Install requirements from repository files
-/alphafold3_venv/bin/pip install -r requirements.txt
-/alphafold3_venv/bin/pip install -r dev-requirements.txt
-
-# Use CMake to build any C++ components
-mkdir -p /alphafold3/build
-cd /alphafold3/build
-cmake .. -G Ninja -DCMAKE_BUILD_PARALLEL_LEVEL=$(nproc)
-ninja -j$(nproc)
-
-# Install AlphaFold 3 package
-cd /alphafold3
-/alphafold3_venv/bin/pip install --no-deps .
+# Install AlphaFold 3 and all dependencies declared in pyproject.toml.
+# pip auto-invokes scikit-build-core → CMake → ninja for the C++ extension.
+# triton and jax-triton are no longer AlphaFold 3 dependencies as of v3.0.2.
+/alphafold3_venv/bin/pip install --no-cache-dir .
 
 # Build chemical components database
 /alphafold3_venv/bin/build_data
 
-# Create directories for input and output data
+# Create bind-mount directories expected at runtime
 mkdir -p /data/af_input /data/af_output /data/models /data/public_databases
 
-# Verify installations
+# Verify installation
 echo "Verifying AlphaFold 3 installation..."
 /alphafold3_venv/bin/python -c "import alphafold3; print('AlphaFold 3 successfully imported')"
+/alphafold3_venv/bin/python -c "import jax; print('JAX version:', jax.__version__)"
 
-# Create simple activation script without GPU-specific settings
+# Activation script — users can override XLA_CLIENT_MEM_FRACTION for their GPU
 cat > /alphafold3_activate.sh << 'EOF'
 #!/bin/bash
 export PATH="/hmmer/bin:/alphafold3_venv/bin:$PATH"
 export PYTHONPATH="/alphafold3"
-# Base environment settings, users can override as needed
-export TRITON_CACHE_DIR=/data/.triton
+export XLA_FLAGS="--xla_gpu_enable_triton_gemm=false"
+export XLA_PYTHON_CLIENT_PREALLOCATE=true
+export XLA_CLIENT_MEM_FRACTION=0.95
 EOF
 
 chmod +x /alphafold3_activate.sh
@@ -93,7 +82,9 @@ chmod +x /alphafold3_activate.sh
 %environment
 export PATH="/hmmer/bin:/alphafold3_venv/bin:$PATH"
 export PYTHONPATH="/alphafold3"
-export TRITON_CACHE_DIR=/data/.triton
+export XLA_FLAGS="--xla_gpu_enable_triton_gemm=false"
+export XLA_PYTHON_CLIENT_PREALLOCATE=true
+export XLA_CLIENT_MEM_FRACTION=0.95
 
 %runscript
 . /alphafold3_activate.sh
@@ -101,30 +92,29 @@ cd /alphafold3
 exec python3 run_alphafold.py "$@"
 
 %labels
-    Version v1.0
-    Description "AlphaFold 3 container for x86 systems with NVIDIA GPUs"
+    Version v3.0.2
+    Description "AlphaFold 3 v3.0.2 container for x86_64 systems with NVIDIA GPUs"
 
 %help
-This container provides AlphaFold 3 for x86 systems with NVIDIA GPUs.
-To run this container, you will need access to the AlphaFold 3 model weights from Google DeepMind.
+This container provides AlphaFold 3 v3.0.2 for x86_64 systems with NVIDIA GPUs.
+
+To run this container you will need the AlphaFold 3 model weights from Google DeepMind.
 Follow the instructions at https://github.com/google-deepmind/alphafold3 to request access.
 
-GPU-specific performance settings:
-  For optimal performance on specific GPU models, you may want to set the following 
-  environment variables when running the container:
-  
-  - For memory management:
-    XLA_PYTHON_CLIENT_PREALLOCATE=true 
-    XLA_CLIENT_MEM_FRACTION=0.XX (adjust according to your GPU memory, typically 0.95)
-  
-  - For performance features:
-    JAX_ENABLE_FLASH_ATTENTION=true (if your GPU supports it)
-    JAX_TRITON_FUSION_COMPILER=triton
+New in v3.0.2:
+  --force_output_dir   Overwrite an existing output directory
+  --save_distogram     Save predicted distograms to output
+  Output files are now compressed with zstandard (.zst)
+  10-30x faster MSA search with sharded database support
+
+GPU memory tuning (override at runtime):
+  XLA_CLIENT_MEM_FRACTION=0.95 (default, suitable for 80-96 GB GPUs)
+  Reduce to 0.75 for smaller GPUs.
 
 Example usage:
-  singularity run --nv \
-    --bind /path/to/input:/data/af_input \
-    --bind /path/to/output:/data/af_output \
+  apptainer run --nv \
+    --bind /path/to/af_input:/data/af_input \
+    --bind /path/to/af_output:/data/af_output \
     --bind /path/to/models:/data/models \
     --bind /path/to/databases:/data/public_databases \
     alphafold3_x86.sif \
